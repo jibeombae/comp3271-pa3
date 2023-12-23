@@ -1,0 +1,3 @@
+/Users/jibeombae/3B (HKU)/comp3271-graphics/A3/PA3_Release/CMakeFiles/Main.dir
+/Users/jibeombae/3B (HKU)/comp3271-graphics/A3/PA3_Release/CMakeFiles/edit_cache.dir
+/Users/jibeombae/3B (HKU)/comp3271-graphics/A3/PA3_Release/CMakeFiles/rebuild_cache.dir
