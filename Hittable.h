@@ -49,7 +49,7 @@ public:
     Sphere(const Point& o, float r, Material material) : o_(o), r_(r), material_(material) {
         emission = material.emission;
         // TODO: Calculate the area. Add your code here.
-        
+        this->area = 4 * M_PI * pow(r, 2);
     }
     ~Sphere() override = default;
 
@@ -102,6 +102,11 @@ public:
              bool phong_interpolation=true) :
         a_(a), b_(b), c_(c), n_a_(n_a), n_b_(n_b), n_c_(n_c), phong_interpolation_(phong_interpolation) {
         // TODO: Calculate the area and the normal. Add your code here.
+        Vec ab(this->b_ - this->a_);
+        Vec ac(this->c_ - this->a_);
+        glm::vec3 abc = glm::cross(ab, ac);
+        this->area = 0.5f * glm::length(abc);
+        this->normal = glm::normalize(abc);
         
     }
     ~Triangle() override = default;

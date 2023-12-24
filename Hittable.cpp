@@ -2,6 +2,25 @@
 
 void Sphere::Sample(HitRecord* hit_record, float& pdf) const {
     // TODO: Add your code here.
+    float theta = static_cast<float>(2.0 * M_PI * get_random_float());
+    float phi = static_cast<float>(M_PI * get_random_float());
+
+    // Construct the direction vector in local space
+    Vec unit_direction(
+        sin(phi) * cos(theta),
+        cos(phi),
+        sin(phi) * sin(theta)
+    );
+
+    hit_record->position = this->o_ + this->r_ * unit_direction;
+    hit_record->normal = unit_direction;
+    hit_record->material = this->material_;
+    hit_record->emission = this->emission;
+
+    // Set pdf for uniform sampling on the unit sphere
+    pdf = 1.0f / this->area;
+    return;
+    
 }
 
 void Quadric::Sample(HitRecord* hit_record, float& pdf) const {
@@ -10,6 +29,23 @@ void Quadric::Sample(HitRecord* hit_record, float& pdf) const {
 
 void Triangle::Sample(HitRecord* hit_record, float& pdf) const {
     // TODO: Add your code here.
+
+    // Generate random barycentric coordinates
+    float x = get_random_float();
+    float y = get_random_float() * (1.0f - x);
+
+    // Calculate the third coordinate
+    float z = 1.0f - x - y;
+
+    // Calculate the point on the triangle using barycentric coordinates
+    Vec sampled_point = x * this->a_ + y * this->b_ + z * this->c_;
+
+    hit_record->position = sampled_point;
+    hit_record->normal = this->normal;
+
+    // Set the pdf
+    pdf = 1.0f / this->area;  // area_ is the area of the triangle
+
 }
 
 void CompleteTriangle::Sample(HitRecord* hit_record, float& pdf) const {
@@ -20,10 +56,67 @@ void CompleteTriangle::Sample(HitRecord* hit_record, float& pdf) const {
 
 void Mesh::Sample(HitRecord* hit_record, float& pdf) const {
     // TODO: Add your code here.
+    // Check if the mesh has triangles
+    if (this->triangles_.empty()) {
+        // No triangles
+        return;
+    }
+
+    // Calculate the total area of all triangles in the mesh
+    float total_area = 0.0f;
+    for (const Triangle& triangle : this->triangles_) {
+        total_area += triangle.area;
+    }
+
+    // Generate a random number between (0, total_area) to decide which triangle is sampled
+    float random_area = get_random_float() * total_area;
+
+    // Select the triangle based on the sampled area
+    float accumulated_area = 0.0f;
+    for (const Triangle& triangle : this->triangles_) {
+        accumulated_area += triangle.area;
+        if (accumulated_area >= random_area) {
+            Triangle sampled_triangle = triangle;
+            sampled_triangle.Sample(hit_record, pdf);
+            return;
+        }
+    }
 }
 
 void HittableList::Sample(HitRecord* hit_record, float& pdf) const {
     // TODO: Add your code here.
+    // Initialize variables
+    pdf = 0.0f;
+    float total_area = 0.0f;
+
+    // Iterate over all hittable objects to calculate total area
+    for (const auto& hittable : this->hittable_list_) {
+        if (hittable->emission > 0.0f) {
+            // If this object is a lighting object
+            total_area += hittable->getArea();
+        }
+    }
+
+    // Generate a random number between (0, total_area) to get a random object in the area
+    float sample = get_random_float() * total_area;
+
+    // Iterate again to find the sampled object
+    for (const auto& hittable : this->hittable_list_) {
+        if (hittable->emission > 0.0f) {
+            // If this object is a lighting object
+            float area = hittable->getArea();
+
+            // Iterate until sampled object is found
+            if (sample < area) {
+                pdf = 1.0f / total_area;  // Set the probability distribution function
+                hittable->Sample(hit_record, pdf);
+                return;
+            }
+
+            // Move to the next object
+            sample -= area;
+        }
+    }
 }
 
 // Sphere
@@ -31,11 +124,30 @@ bool Sphere::Hit(const Ray& ray, HitRecord *hit_record) const {
     // TODO: Add your code here.
     bool ret = false;
 
-    if (ret) {
-        // hit_record->... = ...
-        // hit_record->... = ...
-        // ....
+    Point ray_origin = ray.o - this->o_;
+    float B = 2 * glm::dot(ray_origin,ray.d);
+    float C = glm::dot(ray_origin,ray_origin) - pow(this->r_, 2);
+    float dis = pow(B,2) - (4*C);
+
+    float t;
+    if (dis >= 0) {
+        t = (-B - sqrt(dis)) / 2;
+        if (t < 0) t = (-B + sqrt(dis)) / 2;
+        // check for positive t with floating percision
+        if (t > 0.00001) {
+            ret = true;
+        }
     }
+
+    if (ret) {
+        hit_record->position = ray.At(t);
+        hit_record->normal = glm::normalize(hit_record->position - this->o_);
+        hit_record->distance = glm::length(hit_record->position - ray.o);
+        hit_record->in_direction = ray.d;
+        hit_record->reflection = glm::normalize(ray.d - 2.0f * glm::dot(ray.d, hit_record->normal) * hit_record->normal);
+        hit_record->material = this->material_;
+    }
+
     return ret;
 }
 
@@ -43,12 +155,42 @@ bool Sphere::Hit(const Ray& ray, HitRecord *hit_record) const {
 bool Quadric::Hit(const Ray& ray, HitRecord *hit_record) const {
     // TODO: Add your code here.
     bool ret = false;
-    
-    if (ret) {
-        // hit_record->... = ...
-        // hit_record->... = ...
-        // ....
+
+    // follow equation for ray-quadric intersection
+    glm::vec4 O(ray.o, 1);
+    glm::vec4 D(ray.d, 0);
+
+    float A = glm::dot(D, this->A_ * D);
+    float B = 2 * glm::dot(O, this->A_ * D);
+    float C = glm::dot(O, this->A_ * O);
+
+    float det = pow(B,2) - 4*A*C;
+    float t;
+    if (det >= 0) {
+        if (det == 0){
+            t = -B / (2*A);
+            if (t > 0.00001) {
+                ret = true;
+            }
+        }else{
+            t = (-B - sqrt(det)) / (2*A);
+            if (t < 0) t = (-B + sqrt(det)) / (2*A);
+            if (t > 0.00001) {
+                ret = true;
+            }
         }
+    }
+
+    if (ret) {
+        hit_record->position = ray.At(t);
+        glm::vec4 x(hit_record->position, 1);
+        hit_record->normal = glm::normalize((this->A_ + glm::transpose(this->A_)) * x);
+        hit_record->distance = glm::length(hit_record->position - ray.o);
+        hit_record->in_direction = ray.d;
+        hit_record->reflection = glm::normalize(ray.d - 2.0f * glm::dot(ray.d, hit_record->normal) * hit_record->normal);
+        hit_record->material = this->material_;
+    }
+
     return ret;
 }
 
@@ -56,17 +198,63 @@ bool Quadric::Hit(const Ray& ray, HitRecord *hit_record) const {
 bool Triangle::Hit(const Ray& ray, HitRecord *hit_record) const {
     // TODO: Add your code here.
     bool ret = false;
+
+    // first find intersection of ray with the plane triangle is on
+    Vec n = glm::normalize(glm::cross((this->b_-this->a_), (this->c_-this->a_)));
+
+    float D = -glm::dot(n,this->a_);
+
+    float t = -(glm::dot(n, ray.o) + D) / glm::dot(n, ray.d);
+
+    Point O;
+    if (t > 0.00001) {
+        // the point interects the plane
+        O = ray.At(t);
+        glm::vec3 oa = this->a_ - O;
+        glm::vec3 ob = this->b_ - O;
+        glm::vec3 oc = this->c_ - O;
+
+        glm::vec3 cp1 = glm::cross(oa, ob);
+        glm::vec3 cp2 = glm::cross(ob, oc);
+        glm::vec3 cp3 = glm::cross(oc, oa);
+
+        // check if point in triangle
+        if ((glm::dot(cp1, cp2) > 0.00000000001) && (glm::dot(cp2, cp3) > 0.00000000001) && (glm::dot(cp1, cp3) > 0.00000000001)) {
+            ret = true;
+        }
+    }
     
     if (ret) {
-        // hit_record->... = ...
-        // hit_record->... = ...
-        // ....
+        hit_record->position = O;
+        hit_record->distance = glm::length(hit_record->position - ray.o);
+        hit_record->in_direction = ray.d;
         if (phong_interpolation_) {
-            // hit_record->normal = ...
+            // get a1, a2, a3 using areas of the triangle and intersection point
+            Vec ab(this->b_ - this->a_);
+            Vec ac(this->c_ - this->a_);
+
+            glm::vec3 abc = glm::cross(ab, ac);
+            float area_abc = 0.5f * glm::length(abc);
+
+            Vec ao(hit_record->position - this->a_);
+
+            glm::vec3 abo = glm::cross(ab, ao);
+            float area_abo = 0.5f * glm::length(abo);
+
+            glm::vec3 aco = glm::cross(ac, ao);
+            float area_aco = 0.5f * glm::length(aco);
+
+            float a2 = area_aco / area_abc;
+            float a3 = area_abo / area_abc;
+            float a1 = 1.0f - a2 - a3;
+
+            hit_record->normal = glm::normalize(a1 * this->n_a_ + a2 * this->n_b_ + a3 * this->n_c_);
         }
         else {
-            // hit_record->normal = ...
+            // for flat shading, use vertex normal as the hit_record normal
+            hit_record->normal = this->n_a_;
         }
+        hit_record->reflection = glm::normalize(ray.d - 2.0f * glm::dot(ray.d, hit_record->normal) * hit_record->normal);
         // no need to set material in this function
     }
     
