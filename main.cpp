@@ -54,8 +54,8 @@ int main() {
 		image_buffer[i] = 0.f;
 	}
 
-    int spp = 72;
-    int NUM_THREAD = 62;
+    int spp = 256;
+    int NUM_THREAD = 128;
 
     int pixels_per_thread = width / NUM_THREAD;
 
